@@ -1,7 +1,7 @@
 # TMF Translation Middleware (Flask)
 
 This service bridges TMF APIs and a Django-based inventory application. It:
-- Loads the native Django OpenAPI schema at startup (from NATIVE_SCHEMA_URL or local fallback)
+- Loads the native Django OpenAPI schema at startup (from NATIVE_OPENAPI_URL/NATIVE_OPENAPI_PATH or legacy NATIVE_SCHEMA_URL, else bundled fallback)
 - Translates TMF requests to the native format and native responses back to TMF (stubs)
 - Generates and exposes a TMF-like resource catalogue derived from the native schema
 - Performs simple runtime validation of TMF request/response payloads
@@ -34,7 +34,8 @@ OpenAPI: /openapi.json
     - utils/
       - logging.py
       - errors.py
-  - schema/native_openapi.json (local fallback schema)
+  - schema/native_openapi.json (bundled fallback schema)
+  - schema/native_openapi_sample.json (richer sample to test catalogue generation)
   - .env.example
   - requirements.txt
   - run.py (delegates to app.main)
@@ -58,9 +59,16 @@ cp .env.example .env  # then edit as needed
 
 Environment variables (see .env.example):
 - DJANGO_BASE_URL: Base URL to the Django inventory app (default: http://localhost:8000)
-- NATIVE_SCHEMA_URL: URL to fetch the OpenAPI schema (optional). If empty or fails, fallback to schema/native_openapi.json
+- NATIVE_OPENAPI_URL: URL to a provided native OpenAPI schema (highest priority)
+- NATIVE_OPENAPI_PATH: Local filesystem path to a provided native OpenAPI schema (used if set; takes precedence over bundled fallback)
+- NATIVE_SCHEMA_URL: Legacy URL variable still supported (lower priority than NATIVE_OPENAPI_URL)
 - SERVICE_PORT: Port to run the Flask app (default: 3001)
 - LOG_LEVEL: Logging level (INFO, DEBUG, etc.)
+
+Load order priority:
+1) NATIVE_OPENAPI_PATH (if set and readable)
+2) NATIVE_OPENAPI_URL (or legacy NATIVE_SCHEMA_URL)
+3) Bundled fallback at schema/native_openapi.json
 
 NOTE: Do not commit real secrets. Request any sensitive values from the orchestrator so they are set in the environment.
 
@@ -74,14 +82,39 @@ python -m app.main
 
 The app will listen on 0.0.0.0:3001 by default. Open API docs at /docs.
 
+## Providing a schema and viewing the catalogue
+
+Option A: Provide schema via URL
+- Set NATIVE_OPENAPI_URL=https://example.com/native_openapi.json
+- Start the app
+- Visit GET /tmf/catalogue to see the generated TMF-style catalogue
+
+Option B: Provide schema via local file path
+- Place your OpenAPI JSON somewhere accessible to the app (e.g., mount into container)
+- Set NATIVE_OPENAPI_PATH to that absolute path
+- Start the app
+- Visit GET /tmf/catalogue
+
+Option C: Use the bundled sample
+- No env var needed. The app falls back to schema/native_openapi.json
+- For a richer example, set NATIVE_OPENAPI_PATH to schema/native_openapi_sample.json
+
+The /tmf/catalogue response contains:
+- resource: Name of the resource (from components/schemas)
+- description: Schema description if present
+- keyAttributes: Heuristic key attributes (id and/or required fields)
+- attributes: All attributes with type and required flag
+- capabilities: Inferred CRUD booleans when detectable from OpenAPI paths
+- generatedFromSchema: Metadata including OpenAPI version, source used, and timestamp
+
 ## Endpoints
 
-- GET / 
+- GET /
   - Health: { "status": "ok", "service": "TMF Translation Middleware" }
 - GET /config
   - Current non-sensitive configuration and schema load status
 - GET /tmf/catalogue
-  - Generated TMF-like resource catalogue derived from the native schema
+  - Generated TMF-style resource catalogue derived from the native OpenAPI
 - GET/POST /tmf/<resource>
   - CRUD collection stubs proxied to Django (translation stubs applied)
 - GET/PATCH/PUT/DELETE /tmf/<resource>/<id>
@@ -98,20 +131,18 @@ The app will listen on 0.0.0.0:3001 by default. Open API docs at /docs.
 ## How it works
 
 - Startup
-  - app/__init__.py uses SchemaLoader to fetch the native OpenAPI schema from NATIVE_SCHEMA_URL with a 10s timeout.
-  - If not provided or fails, it loads schema/native_openapi.json as a fallback.
-  - The schema is cached in memory and can be reloaded via SchemaLoader.reload() in future enhancements.
+  - app/__init__.py builds the SchemaLoader with prioritized URL/path and bundled fallback.
+  - SchemaLoader tries local path (if provided), then URL, then bundled file.
+  - The schema is cached in memory and can be reloaded via SchemaLoader.reload().
 
 - Translation
   - app/services/translator.py defines tmf_to_native and native_to_tmf stubs.
-  - TODO markers indicate where to implement detailed TMF mapping rules per resource.
 
 - Validation
   - app/services/validator.py performs simple jsonschema-based validation by deriving a schema from components/schemas.
-  - This is minimal and should be extended for TMF-specific contracts.
 
 - Catalogue
-  - app/services/catalogue.py builds a simplified catalogue of resources and fields from components/schemas in the native OpenAPI.
+  - app/services/catalogue.py builds a TMF-style catalogue including attributes, key attributes, and inferred CRUD capabilities.
 
 - Proxy
   - app/services/proxy.py forwards CRUD requests to the Django app at DJANGO_BASE_URL.
@@ -127,8 +158,9 @@ The app will listen on 0.0.0.0:3001 by default. Open API docs at /docs.
 ## Troubleshooting
 
 - 502 UpstreamUnavailable: Ensure DJANGO_BASE_URL is reachable.
-- No catalogue or validation schemas: Ensure NATIVE_SCHEMA_URL returns OpenAPI JSON or provide a valid local fallback in schema/native_openapi.json.
+- No catalogue or validation schemas: Ensure schema is reachable via NATIVE_OPENAPI_URL/NATIVE_SCHEMA_URL or set NATIVE_OPENAPI_PATH, otherwise bundled fallback is used.
 - Change port: Set SERVICE_PORT in the environment.
+- Inspect loaded config and schema status: GET /config
 
 ## License
 

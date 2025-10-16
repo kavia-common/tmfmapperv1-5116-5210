@@ -43,10 +43,16 @@ def create_app() -> Flask:
 
     api = Api(app)
 
+    # Determine schema source priority: NATIVE_OPENAPI_URL > NATIVE_OPENAPI_PATH > NATIVE_SCHEMA_URL (legacy) > bundled file
+    provided_url = app.config.get("NATIVE_OPENAPI_URL") or app.config.get("NATIVE_SCHEMA_URL") or ""
+    provided_path = app.config.get("NATIVE_OPENAPI_PATH") or ""
+    bundled_path = os.path.join(os.path.dirname(__file__), "..", "schema", "native_openapi.json")
+    local_path = provided_path if provided_path else bundled_path
+
     # Load native schema at startup with graceful fallback
     schema_loader = SchemaLoader(
-        url=app.config.get("NATIVE_SCHEMA_URL"),
-        local_path=os.path.join(os.path.dirname(__file__), "..", "schema", "native_openapi.json"),
+        url=provided_url,
+        local_path=local_path,
         session=None,
     )
     app.schema_loader = schema_loader
@@ -76,6 +82,8 @@ def create_app() -> Flask:
         return jsonify({
             "DJANGO_BASE_URL": app.config.get("DJANGO_BASE_URL"),
             "NATIVE_SCHEMA_URL": app.config.get("NATIVE_SCHEMA_URL"),
+            "NATIVE_OPENAPI_URL": app.config.get("NATIVE_OPENAPI_URL"),
+            "NATIVE_OPENAPI_PATH": app.config.get("NATIVE_OPENAPI_PATH"),
             "SERVICE_PORT": app.config.get("SERVICE_PORT"),
             "LOG_LEVEL": app.config.get("LOG_LEVEL"),
             "schema_loaded": app.schema_loader.schema is not None

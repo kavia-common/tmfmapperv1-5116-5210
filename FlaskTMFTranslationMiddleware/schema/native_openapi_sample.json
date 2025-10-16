@@ -1,0 +1,76 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Sample Native Inventory API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/items": {
+      "get": {
+        "summary": "List Items",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Item" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Item",
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/items/{id}": {
+      "get": { "summary": "Get Item", "responses": { "200": { "description": "OK" } } },
+      "patch": { "summary": "Update Item", "responses": { "200": { "description": "OK" } } },
+      "delete": { "summary": "Delete Item", "responses": { "204": { "description": "No Content" } } }
+    },
+    "/warehouses": {
+      "get": {
+        "summary": "List Warehouses",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Warehouse" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/warehouses/{id}": {
+      "get": { "summary": "Get Warehouse", "responses": { "200": { "description": "OK" } } }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Item": {
+        "type": "object",
+        "description": "Inventory item",
+        "properties": {
+          "id": { "type": "string", "description": "Unique identifier" },
+          "name": { "type": "string" },
+          "quantity": { "type": "integer" },
+          "warehouseId": { "type": "string" }
+        },
+        "required": ["id", "name"]
+      },
+      "Warehouse": {
+        "type": "object",
+        "description": "Warehouse location",
+        "properties": {
+          "id": { "type": "string" },
+          "location": { "type": "string" },
+          "capacity": { "type": "integer" }
+        },
+        "required": ["id", "location"]
+      }
+    }
+  }
+}
