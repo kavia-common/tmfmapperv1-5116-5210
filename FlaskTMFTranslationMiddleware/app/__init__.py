@@ -1,11 +1,14 @@
 import os
-from flask import Flask, jsonify
+import time
+from flask import Flask, jsonify, g
 from flask_cors import CORS
 from flask_smorest import Api
 from .config import Config
 from .utils.logging import configure_logging
 from .utils.errors import register_error_handlers
 from .services.schema_loader import SchemaLoader
+from .observability.middleware import register_observability_middleware
+from .observability.metrics import blp as metrics_blp, record_request_metrics
 
 # PUBLIC_INTERFACE
 def create_app() -> Flask:
@@ -16,10 +19,8 @@ def create_app() -> Flask:
     - CORS for all routes
     - OpenAPI/Swagger via flask-smorest
     - Global schema loader to load the native Django OpenAPI schema at startup
-    - Route blueprints for health, config, catalogue, TMF proxy, and validation
-    
-    Returns:
-        A configured Flask app instance.
+    - Route blueprints for health, config, catalogue, TMF proxy, validation, admin, and metrics
+    - Observability middleware with request ID propagation and basic metrics
     """
     app = Flask(__name__)
     app.url_map.strict_slashes = False
@@ -32,6 +33,9 @@ def create_app() -> Flask:
 
     # CORS
     CORS(app, resources={r"/*": {"origins": "*"}})
+
+    # Observability middleware (request id + timing)
+    register_observability_middleware(app)
 
     # OpenAPI / Swagger UI
     app.config["API_TITLE"] = "TMF Translation Middleware API"
@@ -67,11 +71,15 @@ def create_app() -> Flask:
     from .routes.catalogue import blp as catalogue_blp
     from .routes.tmf_proxy import blp as tmf_blp
     from .routes.validate import blp as validate_blp
+    from .routes.admin import blp as admin_blp
 
     api.register_blueprint(health_blp)
     api.register_blueprint(catalogue_blp)
     api.register_blueprint(tmf_blp)
     api.register_blueprint(validate_blp)
+    api.register_blueprint(admin_blp)
+    if app.config.get("ENABLE_METRICS", True):
+        api.register_blueprint(metrics_blp)
 
     # Config endpoint (simple, not via smorest for quick inspection)
     @app.get("/config")
@@ -86,10 +94,28 @@ def create_app() -> Flask:
             "NATIVE_OPENAPI_PATH": app.config.get("NATIVE_OPENAPI_PATH"),
             "SERVICE_PORT": app.config.get("SERVICE_PORT"),
             "LOG_LEVEL": app.config.get("LOG_LEVEL"),
+            "VALIDATE_REQUESTS": app.config.get("VALIDATE_REQUESTS"),
+            "VALIDATE_RESPONSES": app.config.get("VALIDATE_RESPONSES"),
+            "ENABLE_METRICS": app.config.get("ENABLE_METRICS"),
+            "UPSTREAM_TIMEOUT_SECONDS": app.config.get("UPSTREAM_TIMEOUT_SECONDS"),
+            "UPSTREAM_RETRY_COUNT": app.config.get("UPSTREAM_RETRY_COUNT"),
             "schema_loaded": app.schema_loader.schema is not None
         })
 
     # Error handlers
     register_error_handlers(app)
+
+    # Per-request metrics capture
+    @app.before_request
+    def _metrics_start():
+        g._request_metrics_start = time.time()
+
+    @app.after_request
+    def _metrics_end(response):
+        try:
+            record_request_metrics(getattr(g, "_request_metrics_start", time.time()))
+        except Exception:
+            pass
+        return response
 
     return app

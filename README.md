@@ -64,6 +64,14 @@ Environment variables (see .env.example):
 - NATIVE_SCHEMA_URL: Legacy URL variable still supported (lower priority than NATIVE_OPENAPI_URL)
 - SERVICE_PORT: Port to run the Flask app (default: 3001)
 - LOG_LEVEL: Logging level (INFO, DEBUG, etc.)
+- VALIDATE_REQUESTS: Enable pre-proxy validation for TMF requests (default false)
+- VALIDATE_RESPONSES: Enable post-proxy validation for TMF responses (default false)
+- ENABLE_METRICS: Enable /metrics endpoint and counters (default true)
+- UPSTREAM_TIMEOUT_SECONDS: Upstream proxy timeout in seconds (default 10)
+- UPSTREAM_RETRY_COUNT: Number of retry attempts for upstream requests (default 1)
+- UPSTREAM_AUTH_BEARER: Static bearer token to send to upstream (optional)
+- UPSTREAM_API_KEY: Static API key to send to upstream (optional)
+- UPSTREAM_API_KEY_HEADER: Header name for API key (default X-API-Key)
 
 Load order priority:
 1) NATIVE_OPENAPI_PATH (if set and readable)
@@ -116,9 +124,9 @@ The /tmf/catalogue response contains:
 - GET /tmf/catalogue
   - Generated TMF-style resource catalogue derived from the native OpenAPI
 - GET/POST /tmf/<resource>
-  - CRUD collection stubs proxied to Django (translation stubs applied)
+  - CRUD collection stubs proxied to Django (translation applied); supports query mapping
 - GET/PATCH/PUT/DELETE /tmf/<resource>/<id>
-  - CRUD item stubs proxied to Django (translation stubs applied)
+  - CRUD item stubs proxied to Django (translation applied)
 - POST /validate
   - Validate a payload against a derived schema for a resource
   - Request:
@@ -127,6 +135,12 @@ The /tmf/catalogue response contains:
       "payload": { ... },
       "direction": "tmf_to_native" | "native_to_tmf"
     }
+- Admin
+  - POST /admin/schema/reload -> force reload schema (uses ETag/Last-Modified if available)
+  - GET /admin/schema/info -> schema source metadata and component list
+  - GET /admin/upstream/health -> upstream base URL reachability
+- Observability
+  - GET /metrics -> basic counters and latency aggregates (enable via ENABLE_METRICS=true)
 
 ## How it works
 
@@ -136,10 +150,10 @@ The /tmf/catalogue response contains:
   - The schema is cached in memory and can be reloaded via SchemaLoader.reload().
 
 - Translation
-  - app/services/translator.py defines tmf_to_native and native_to_tmf stubs.
+  - app/services/translator.py defines tmf_to_native and native_to_tmf; includes a sample mapping for Item and pass-through for unmapped fields. Query param mapping supported.
 
 - Validation
-  - app/services/validator.py performs simple jsonschema-based validation by deriving a schema from components/schemas.
+  - app/services/validator.py performs simple jsonschema-based validation by deriving a schema from components/schemas. Direction-aware hooks exist for request vs response. Toggle via VALIDATE_REQUESTS/VALIDATE_RESPONSES or ?validate=true on calls.
 
 - Catalogue
   - app/services/catalogue.py builds a TMF-style catalogue including attributes, key attributes, and inferred CRUD capabilities.
